@@ -3,6 +3,7 @@ import re
 import time
 import asyncio
 import logging
+import subprocess
 from pathlib import Path
 
 import yt_dlp
@@ -73,6 +74,46 @@ def extract_instagram_url(text: str) -> str | None:
         if match:
             return match.group(0)
     return None
+
+
+def compress_video_if_needed(filepath: str) -> str:
+    """If a video file exceeds MAX_FILE_SIZE (50MB), compress it using ffmpeg."""
+    if not os.path.exists(filepath):
+        return filepath
+
+    size = os.path.getsize(filepath)
+    if size <= MAX_FILE_SIZE:
+        return filepath
+
+    compressed_path = filepath + "_compressed.mp4"
+    logger.info("File %s is %d bytes (>50MB). Compressing with ffmpeg...", filepath, size)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        filepath,
+        "-vcodec",
+        "libx264",
+        "-crf",
+        "28",
+        "-preset",
+        "faster",
+        "-acodec",
+        "aac",
+        "-b:a",
+        "128k",
+        compressed_path,
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        if res.returncode == 0 and os.path.exists(compressed_path):
+            logger.info("Successfully compressed %s -> %s", filepath, compressed_path)
+            return compressed_path
+    except Exception as e:
+        logger.warning("Video compression failed for %s: %s", filepath, e)
+
+    return filepath
 
 
 def download_photo_fallback(url: str, output_path: str) -> bool:
@@ -388,8 +429,26 @@ async def handle_text(message: Message):
             await status_msg.edit_text(get_message(lang, "error_download"))
             return
 
-        # Check total file size
-        if result["filesize"] > MAX_FILE_SIZE:
+        # Filter items and compress any video > 50MB
+        valid_items = []
+        for filepath, media_type in items:
+            downloaded_files.append(filepath)
+
+            # Check individual file size
+            if media_type == "video" and os.path.getsize(filepath) > MAX_FILE_SIZE:
+                # Try compressing with ffmpeg
+                comp_filepath = compress_video_if_needed(filepath)
+                if comp_filepath != filepath:
+                    downloaded_files.append(comp_filepath)
+                    filepath = comp_filepath
+
+            # If still > 50MB after compression, skip only this single file
+            if os.path.getsize(filepath) <= MAX_FILE_SIZE:
+                valid_items.append((filepath, media_type))
+            else:
+                logger.warning("Skipping file %s because it exceeds 50MB limit even after compression", filepath)
+
+        if not valid_items:
             await status_msg.edit_text(get_message(lang, "error_file_too_large"))
             return
 
@@ -397,9 +456,8 @@ async def handle_text(message: Message):
         await status_msg.edit_text(get_message(lang, "processing"))
 
         # Send items: single item or media group (album) for multiple items
-        if len(items) == 1:
-            filepath, media_type = items[0]
-            downloaded_files.append(filepath)
+        if len(valid_items) == 1:
+            filepath, media_type = valid_items[0]
             media_file = FSInputFile(filepath)
 
             if media_type == "video":
@@ -415,8 +473,8 @@ async def handle_text(message: Message):
                 )
         else:
             # Batch items into groups of 10 (Telegram album limit)
-            for batch_start in range(0, len(items), 10):
-                batch = items[batch_start:batch_start + 10]
+            for batch_start in range(0, len(valid_items), 10):
+                batch = valid_items[batch_start:batch_start + 10]
                 media_group = []
 
                 for i, (filepath, media_type) in enumerate(batch):
