@@ -1,0 +1,13 @@
+[project]
+name = "instagram-downloader-bot"
+version = "0.1.0"
+description = "Telegram bot to download Instagram videos, reels, and stories"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram>=3.3",
+    "yt-dlp>=2024.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
