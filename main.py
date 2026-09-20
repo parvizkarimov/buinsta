@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yt_dlp
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, FSInputFile, CallbackQuery
+from aiogram.types import Message, FSInputFile, CallbackQuery, BotCommand
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.enums import ParseMode
@@ -379,6 +379,18 @@ async def main():
             logger.info("Admin deploy notification sent to %s", ADMIN_ID)
         except Exception as e:
             logger.warning("Could not send startup message to admin: %s", e)
+
+    # Set up Telegram bot commands menu
+    try:
+        commands = [
+            BotCommand(command="start", description="🔄 перезапуск / qayta ishga tushirish"),
+            BotCommand(command="lang", description="🌐 выбрать язык / tilni tanlash"),
+            BotCommand(command="help", description="📖 помощь / yordam"),
+        ]
+        await bot.set_my_commands(commands)
+        logger.info("Bot commands menu set successfully")
+    except Exception as e:
+        logger.warning("Failed to set bot commands menu: %s", e)
 
     await dp.start_polling(bot)
 
