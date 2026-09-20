@@ -22,6 +22,14 @@ from config import (
     INSTAGRAM_URL_PATTERNS,
 )
 from locales import get_message, LANGUAGE_OPTIONS
+from db import (
+    init_db,
+    register_or_update_user,
+    increment_user_links,
+    mark_user_blocked,
+    get_users_stats,
+    get_all_users,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -233,6 +241,12 @@ def cleanup_files(*filepaths: str) -> None:
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     """Handle /start command."""
+    register_or_update_user(
+        user_id=message.from_user.id,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+        username=message.from_user.username,
+    )
     lang = get_user_lang(message.from_user.id)
     await message.answer(get_message(lang, "welcome"))
 
@@ -240,6 +254,12 @@ async def cmd_start(message: Message):
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
     """Handle /help command."""
+    register_or_update_user(
+        user_id=message.from_user.id,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+        username=message.from_user.username,
+    )
     lang = get_user_lang(message.from_user.id)
     await message.answer(get_message(lang, "help"))
 
@@ -247,6 +267,12 @@ async def cmd_help(message: Message):
 @dp.message(Command("lang"))
 async def cmd_lang(message: Message):
     """Handle /lang command — show language selection keyboard."""
+    register_or_update_user(
+        user_id=message.from_user.id,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+        username=message.from_user.username,
+    )
     lang = get_user_lang(message.from_user.id)
 
     builder = InlineKeyboardBuilder()
@@ -258,6 +284,54 @@ async def cmd_lang(message: Message):
         get_message(lang, "choose_lang"),
         reply_markup=builder.as_markup(),
     )
+
+
+@dp.message(Command("users"))
+async def cmd_users(message: Message):
+    """Admin command to show user statistics and list of members."""
+    if not ADMIN_ID or str(message.from_user.id) != str(ADMIN_ID):
+        await message.answer("❌ Bu buyruq faqat admin uchun!")
+        return
+
+    stats = get_users_stats()
+    users = get_all_users()
+
+    header = (
+        "📊 <b>Foydalanuvchilar Statistikasi</b>\n\n"
+        f"👥 <b>Jami qo'shilganlar:</b> {stats['total_users']} ta\n"
+        f"🟢 <b>Faol foydalanuvchilar:</b> {stats['active_users']} ta\n"
+        f"🚫 <b>Botni bloklaganlar:</b> {stats['blocked_users']} ta\n"
+        f"🔗 <b>Jami yuklangan ssilkalar:</b> {stats['total_links']} ta\n\n"
+        "📋 <b>Foydalanuvchilar ro'yxati:</b>\n"
+        "────────────────────\n"
+    )
+
+    if not users:
+        await message.answer(header + "Hali foydalanuvchilar mavjud emas.")
+        return
+
+    entries = [header]
+    for i, u in enumerate(users, 1):
+        status_str = "🔴 Bloklagan" if u.get("is_blocked") else "🟢 Faol"
+        uname = f"@{u['username']}" if u.get("username") else "username yo'q"
+        fullname = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or "Ismsiz"
+
+        entry = (
+            f"<b>{i}. {fullname}</b> ({uname})\n"
+            f"   🆔 ID: <code>{u['user_id']}</code> | 🔗 Ssilkalar: <b>{u['links_count']}</b> | {status_str}"
+        )
+        entries.append(entry)
+
+    # Chunk messages so they don't exceed Telegram 4000 char limit
+    current_msg = ""
+    for item in entries:
+        if len(current_msg) + len(item) > 3800:
+            await message.answer(current_msg)
+            current_msg = ""
+        current_msg += item + "\n\n"
+
+    if current_msg.strip():
+        await message.answer(current_msg)
 
 
 @dp.callback_query(F.data.startswith("lang:"))
@@ -277,6 +351,12 @@ async def callback_lang(callback: CallbackQuery):
 @dp.message(F.text)
 async def handle_text(message: Message):
     """Handle text messages — check for Instagram URLs."""
+    register_or_update_user(
+        user_id=message.from_user.id,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name,
+        username=message.from_user.username,
+    )
     lang = get_user_lang(message.from_user.id)
 
     # Extract Instagram URL from the message
@@ -285,6 +365,9 @@ async def handle_text(message: Message):
     if not url:
         await message.answer(get_message(lang, "error_invalid_url"))
         return
+
+    # Increment link counter for this user
+    increment_user_links(message.from_user.id)
 
     # Send "downloading" status
     status_msg = await message.answer(get_message(lang, "downloading"))
@@ -352,6 +435,9 @@ async def handle_text(message: Message):
 async def main():
     """Start the bot."""
     logger.info("Bot is starting...")
+
+    # Initialize database
+    init_db()
 
     cookies_exist = os.path.exists(COOKIES_PATH) and os.path.getsize(COOKIES_PATH) > 0
 

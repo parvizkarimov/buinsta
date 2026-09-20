@@ -24,7 +24,8 @@ MESSAGES = {
             "⚠️ <b>Cheklovlar:</b>\n"
             "• Faqat ochiq (public) kontentlar yuklanadi\n"
             "• Maksimal fayl hajmi: 50MB (Telegram limiti)\n\n"
-            "🌐 Tilni o'zgartirish: /lang"
+            "🌐 Tilni o'zgartirish: /lang\n\n"
+            "👨‍💻 <b>Bot yaratuvchisi:</b> @parvizkarimov"
         ),
         "choose_lang": (
             "🌐 <b>Tilni tanlang / Выберите язык / Choose language:</b>"
@@ -74,7 +75,8 @@ MESSAGES = {
             "⚠️ <b>Ограничения:</b>\n"
             "• Скачиваются только открытые (публичные) материалы\n"
             "• Максимальный размер файла: 50MB (лимит Telegram)\n\n"
-            "🌐 Сменить язык: /lang"
+            "🌐 Сменить язык: /lang\n\n"
+            "👨‍💻 <b>Создатель бота:</b> @parvizkarimov"
         ),
         "choose_lang": (
             "🌐 <b>Tilni tanlang / Выберите язык / Choose language:</b>"
@@ -124,7 +126,8 @@ MESSAGES = {
             "⚠️ <b>Limitations:</b>\n"
             "• Only public content can be downloaded\n"
             "• Maximum file size: 50MB (Telegram limit)\n\n"
-            "🌐 Change language: /lang"
+            "🌐 Change language: /lang\n\n"
+            "👨‍💻 <b>Bot creator:</b> @parvizkarimov"
         ),
         "choose_lang": (
             "🌐 <b>Tilni tanlang / Выберите язык / Choose language:</b>"
