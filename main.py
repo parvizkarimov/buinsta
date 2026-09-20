@@ -15,6 +15,7 @@ from aiogram.client.default import DefaultBotProperties
 
 from config import (
     BOT_TOKEN,
+    ADMIN_ID,
     COOKIES_PATH,
     DOWNLOAD_DIR,
     MAX_FILE_SIZE,
@@ -267,8 +268,10 @@ async def main():
     """Start the bot."""
     logger.info("Bot is starting...")
 
+    cookies_exist = os.path.exists(COOKIES_PATH) and os.path.getsize(COOKIES_PATH) > 0
+
     # Check cookies status
-    if os.path.exists(COOKIES_PATH):
+    if cookies_exist:
         logger.info("✅ Cookies file found at: %s", COOKIES_PATH)
     else:
         logger.warning(
@@ -277,6 +280,20 @@ async def main():
             "Set COOKIES_CONTENT env var or provide cookies.txt file.",
             COOKIES_PATH,
         )
+
+    # Send deploy notification to admin
+    if ADMIN_ID:
+        try:
+            cookies_status = "✅ Faol" if cookies_exist else "⚠️ Cookies o'rnatilmagan"
+            msg = (
+                "🚀 <b>Bot muvaffaqiyatli ishga tushdi va deploy bo'ldi!</b>\n\n"
+                f"🔑 <b>Cookies:</b> {cookies_status}\n"
+                f"🕒 <b>Vaqt:</b> {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            await bot.send_message(chat_id=int(ADMIN_ID), text=msg)
+            logger.info("Admin deploy notification sent to %s", ADMIN_ID)
+        except Exception as e:
+            logger.warning("Could not send startup message to admin: %s", e)
 
     await dp.start_polling(bot)
 

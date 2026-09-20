@@ -5,6 +5,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set. Please set it in Railway.")
 
+# Admin ID (optional)
+ADMIN_ID = os.getenv("ADMIN_ID")
+
 # Cookies configuration
 # Option 1: cookies.txt file in project root
 COOKIES_PATH = os.getenv("COOKIES_PATH", "cookies.txt")
