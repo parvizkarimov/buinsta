@@ -7,7 +7,14 @@ from pathlib import Path
 
 import yt_dlp
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, FSInputFile, CallbackQuery, BotCommand
+from aiogram.types import (
+    Message,
+    FSInputFile,
+    CallbackQuery,
+    BotCommand,
+    InputMediaPhoto,
+    InputMediaVideo,
+)
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.enums import ParseMode
@@ -149,7 +156,7 @@ async def download_instagram(url: str, user_id: int) -> dict:
     """
     timestamp = int(time.time())
     prefix = f"{user_id}_{timestamp}"
-    output_template = os.path.join(DOWNLOAD_DIR, f"{prefix}_%(no)s.%(ext)s")
+    output_template = os.path.join(DOWNLOAD_DIR, f"{prefix}_%(playlist_index,autonumber,1)02d_%(id)s.%(ext)s")
 
     ydl_opts = {
         "format": "bestvideo+bestaudio/best",
@@ -389,8 +396,9 @@ async def handle_text(message: Message):
         # Update status
         await status_msg.edit_text(get_message(lang, "processing"))
 
-        # Send items (video or photo)
-        for filepath, media_type in items:
+        # Send items: single item or media group (album) for multiple items
+        if len(items) == 1:
+            filepath, media_type = items[0]
             downloaded_files.append(filepath)
             media_file = FSInputFile(filepath)
 
@@ -405,6 +413,24 @@ async def handle_text(message: Message):
                     media_file,
                     caption=get_message(lang, "success"),
                 )
+        else:
+            # Batch items into groups of 10 (Telegram album limit)
+            for batch_start in range(0, len(items), 10):
+                batch = items[batch_start:batch_start + 10]
+                media_group = []
+
+                for i, (filepath, media_type) in enumerate(batch):
+                    downloaded_files.append(filepath)
+                    media_file = FSInputFile(filepath)
+                    # Add caption only to the first item of the first batch
+                    caption = get_message(lang, "success") if (batch_start == 0 and i == 0) else None
+
+                    if media_type == "video":
+                        media_group.append(InputMediaVideo(media=media_file, caption=caption))
+                    else:
+                        media_group.append(InputMediaPhoto(media=media_file, caption=caption))
+
+                await message.answer_media_group(media=media_group)
 
         # Delete the status message
         await status_msg.delete()
