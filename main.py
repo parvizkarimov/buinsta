@@ -60,11 +60,84 @@ def extract_instagram_url(text: str) -> str | None:
     return None
 
 
+def download_photo_fallback(url: str, output_path: str) -> bool:
+    """Fallback method to download Instagram photos directly if yt-dlp fails."""
+    import urllib.request
+    import html
+
+    m = re.search(r'/(p|reel|reels)/([\w\-]+)', url)
+    if not m:
+        return False
+
+    shortcode = m.group(2)
+
+    # Method 1: media/?size=l endpoint
+    media_url = f"https://www.instagram.com/p/{shortcode}/media/?size=l"
+    try:
+        req = urllib.request.Request(
+            media_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as res:
+            content = res.read()
+            if len(content) > 5000 and (content.startswith(b'\xff\xd8') or content.startswith(b'\x89PNG') or b'JFIF' in content[:100]):
+                with open(output_path, "wb") as f:
+                    f.write(content)
+                logger.info("Photo fallback Method 1 successful for %s", shortcode)
+                return True
+    except Exception as e:
+        logger.warning("Photo fallback Method 1 failed: %s", e)
+
+    # Method 2: Embed page HTML scraping
+    embed_url = f"https://www.instagram.com/p/{shortcode}/embed/captioned/"
+    try:
+        req = urllib.request.Request(
+            embed_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as res:
+            page_html = res.read().decode("utf-8", errors="ignore")
+            matches = re.findall(r'class="EmbeddedMediaImage"[^>]*src="([^"]+)"', page_html)
+            if not matches:
+                matches = re.findall(r'<img[^>]+src="([^"]+)"[^>]+class="EmbeddedMediaImage"', page_html)
+            if not matches:
+                matches = re.findall(r'"display_url":"([^"]+)"', page_html)
+
+            for img_url in matches:
+                clean_url = html.unescape(img_url).replace("\\u0026", "&")
+                img_req = urllib.request.Request(
+                    clean_url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                )
+                with urllib.request.urlopen(img_req, timeout=15) as img_res:
+                    img_data = img_res.read()
+                    if len(img_data) > 5000:
+                        with open(output_path, "wb") as f:
+                            f.write(img_data)
+                        logger.info("Photo fallback Method 2 successful for %s", shortcode)
+                        return True
+    except Exception as e:
+        logger.warning("Photo fallback Method 2 failed: %s", e)
+
+    return False
+
+
 async def download_instagram(url: str, user_id: int) -> dict:
     """
-    Download Instagram content (video or photo) using yt-dlp.
-    Returns a dict with 'files' (list of tuples: (path, media_type)),
-    'title', 'filesize' on success.
+    Download Instagram content (video or photo) using yt-dlp,
+    with automatic fallback for photo posts.
     """
     timestamp = int(time.time())
     prefix = f"{user_id}_{timestamp}"
@@ -95,37 +168,49 @@ async def download_instagram(url: str, user_id: int) -> dict:
         logger.info("Using cookies from %s", COOKIES_PATH)
 
     def _download():
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if info is None:
-                raise ValueError("Could not extract media info")
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info is not None:
+                    downloaded_items = []
+                    dir_path = Path(DOWNLOAD_DIR)
+                    found_files = sorted(dir_path.glob(f"{prefix}_*"))
 
-            # Look for all downloaded files matching prefix
-            downloaded_items = []
-            dir_path = Path(DOWNLOAD_DIR)
-            found_files = sorted(dir_path.glob(f"{prefix}_*"))
+                    if not found_files:
+                        found_files = sorted(dir_path.glob(f"{prefix}.*"))
 
-            # Fallback if outtmpl didn't use _%(no)s or single file
-            if not found_files:
-                found_files = sorted(dir_path.glob(f"{prefix}.*"))
+                    total_size = 0
+                    for fpath in found_files:
+                        fstr = str(fpath)
+                        ext = fpath.suffix.lower()
+                        size = os.path.getsize(fstr)
+                        total_size += size
 
-            total_size = 0
-            for fpath in found_files:
-                fstr = str(fpath)
-                ext = fpath.suffix.lower()
-                size = os.path.getsize(fstr)
-                total_size += size
+                        if ext in [".mp4", ".mov", ".mkv", ".webm", ".avi"]:
+                            downloaded_items.append((fstr, "video"))
+                        elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                            downloaded_items.append((fstr, "photo"))
 
-                if ext in [".mp4", ".mov", ".mkv", ".webm", ".avi"]:
-                    downloaded_items.append((fstr, "video"))
-                elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
-                    downloaded_items.append((fstr, "photo"))
+                    if downloaded_items:
+                        return {
+                            "items": downloaded_items,
+                            "title": info.get("title", "Instagram Post"),
+                            "filesize": total_size,
+                        }
+        except Exception as yt_err:
+            logger.warning("yt-dlp download failed: %s. Trying photo fallback...", yt_err)
 
+        # Fallback to direct photo downloader
+        fallback_photo_path = os.path.join(DOWNLOAD_DIR, f"{prefix}_fallback.jpg")
+        if download_photo_fallback(url, fallback_photo_path):
+            size = os.path.getsize(fallback_photo_path)
             return {
-                "items": downloaded_items,
-                "title": info.get("title", "Instagram Post"),
-                "filesize": total_size,
+                "items": [(fallback_photo_path, "photo")],
+                "title": "Instagram Photo",
+                "filesize": size,
             }
+
+        raise ValueError("Could not download media via yt-dlp or photo fallback")
 
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _download)
