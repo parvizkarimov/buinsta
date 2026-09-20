@@ -35,11 +35,10 @@ SUPPORTED_DOMAINS = [
     "www.instagr.am",
 ]
 
-# Instagram URL patterns
+# Instagram URL patterns (supports posts, reels, stories, highlights, usernames with dots)
 INSTAGRAM_URL_PATTERNS = [
-    r"https?://(?:www\.)?instagram\.com/(?:p|reel|reels|stories|tv)/[\w\-]+",
-    r"https?://(?:www\.)?instagram\.com/[\w.]+/(?:p|reel|reels|stories|tv)/[\w\-]+",
-    r"https?://(?:www\.)?instagr\.am/(?:p|reel|reels|stories|tv)/[\w\-]+",
+    r"https?://(?:www\.)?(?:instagram\.com|instagr\.am)/(?:[\w.-]+/)*(?:p|reel|reels|stories|tv|highlights)/[\w.-]+/?(?:\?[^\s]*)?",
+    r"https?://(?:www\.)?(?:instagram\.com|instagr\.am)/stories/[\w.-]+(?:/[\d]+)?/?(?:\?[^\s]*)?",
 ]
 
 # Default language

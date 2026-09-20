@@ -73,7 +73,7 @@ def download_photo_fallback(url: str, output_path: str) -> bool:
     import urllib.request
     import html
 
-    m = re.search(r'/(p|reel|reels)/([\w\-]+)', url)
+    m = re.search(r'/(p|reel|reels|stories|highlights)/([\w.-]+)', url)
     if not m:
         return False
 
@@ -154,7 +154,6 @@ async def download_instagram(url: str, user_id: int) -> dict:
     ydl_opts = {
         "format": "bestvideo+bestaudio/best",
         "outtmpl": output_template,
-        "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
