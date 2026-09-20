@@ -12,10 +12,10 @@ COOKIES_PATH = os.getenv("COOKIES_PATH", "cookies.txt")
 # Option 2: cookies content from environment variable (for Railway deployment)
 COOKIES_CONTENT = os.getenv("COOKIES_CONTENT")
 
-# If COOKIES_CONTENT is set, write it to cookies.txt on startup
-if COOKIES_CONTENT and not os.path.exists(COOKIES_PATH):
+# If COOKIES_CONTENT is set, write it to cookies.txt on startup (always update)
+if COOKIES_CONTENT:
     with open(COOKIES_PATH, "w", encoding="utf-8") as f:
-        f.write(COOKIES_CONTENT)
+        f.write(COOKIES_CONTENT.strip() + "\n")
 
 # Download settings
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")

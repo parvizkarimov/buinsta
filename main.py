@@ -61,26 +61,35 @@ def extract_instagram_url(text: str) -> str | None:
 
 async def download_instagram(url: str, user_id: int) -> dict:
     """
-    Download Instagram content using yt-dlp.
-    Returns a dict with 'filepath', 'title', 'thumbnail' keys on success,
-    or raises an exception on failure.
+    Download Instagram content (video or photo) using yt-dlp.
+    Returns a dict with 'files' (list of tuples: (path, media_type)),
+    'title', 'filesize' on success.
     """
     timestamp = int(time.time())
-    output_template = os.path.join(DOWNLOAD_DIR, f"{user_id}_{timestamp}.%(ext)s")
+    prefix = f"{user_id}_{timestamp}"
+    output_template = os.path.join(DOWNLOAD_DIR, f"{prefix}_%(no)s.%(ext)s")
 
     ydl_opts = {
-        "format": "best[ext=mp4]/best",
+        "format": "bestvideo+bestaudio/best",
         "outtmpl": output_template,
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 30,
-        "retries": 3,
-        "merge_output_format": "mp4",
+        "retries": 5,
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
     }
 
     # Add cookies if available
-    if os.path.exists(COOKIES_PATH):
+    if os.path.exists(COOKIES_PATH) and os.path.getsize(COOKIES_PATH) > 0:
         ydl_opts["cookiefile"] = COOKIES_PATH
         logger.info("Using cookies from %s", COOKIES_PATH)
 
@@ -88,26 +97,33 @@ async def download_instagram(url: str, user_id: int) -> dict:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info is None:
-                raise ValueError("Could not extract video info")
+                raise ValueError("Could not extract media info")
 
-            # Find the downloaded file
-            filename = ydl.prepare_filename(info)
-            # yt-dlp may change the extension
-            if not os.path.exists(filename):
-                # Try with .mp4 extension
-                base = os.path.splitext(filename)[0]
-                for ext in [".mp4", ".webm", ".mkv", ".mov"]:
-                    candidate = base + ext
-                    if os.path.exists(candidate):
-                        filename = candidate
-                        break
+            # Look for all downloaded files matching prefix
+            downloaded_items = []
+            dir_path = Path(DOWNLOAD_DIR)
+            found_files = sorted(dir_path.glob(f"{prefix}_*"))
+
+            # Fallback if outtmpl didn't use _%(no)s or single file
+            if not found_files:
+                found_files = sorted(dir_path.glob(f"{prefix}.*"))
+
+            total_size = 0
+            for fpath in found_files:
+                fstr = str(fpath)
+                ext = fpath.suffix.lower()
+                size = os.path.getsize(fstr)
+                total_size += size
+
+                if ext in [".mp4", ".mov", ".mkv", ".webm", ".avi"]:
+                    downloaded_items.append((fstr, "video"))
+                elif ext in [".jpg", ".jpeg", ".png", ".webp"]:
+                    downloaded_items.append((fstr, "photo"))
 
             return {
-                "filepath": filename,
-                "title": info.get("title", "Instagram Video"),
-                "thumbnail": info.get("thumbnail"),
-                "duration": info.get("duration"),
-                "filesize": os.path.getsize(filename) if os.path.exists(filename) else 0,
+                "items": downloaded_items,
+                "title": info.get("title", "Instagram Post"),
+                "filesize": total_size,
             }
 
     loop = asyncio.get_running_loop()
@@ -187,38 +203,46 @@ async def handle_text(message: Message):
     # Send "downloading" status
     status_msg = await message.answer(get_message(lang, "downloading"))
 
-    filepath = None
+    downloaded_files = []
     try:
         # Download the content
         result = await download_instagram(url, message.from_user.id)
-        filepath = result["filepath"]
+        items = result.get("items", [])
 
-        # Check file size
-        if result["filesize"] > MAX_FILE_SIZE:
-            await status_msg.edit_text(get_message(lang, "error_file_too_large"))
+        if not items:
+            await status_msg.edit_text(get_message(lang, "error_download"))
             return
 
-        # Check if file exists
-        if not filepath or not os.path.exists(filepath):
-            await status_msg.edit_text(get_message(lang, "error_download"))
+        # Check total file size
+        if result["filesize"] > MAX_FILE_SIZE:
+            await status_msg.edit_text(get_message(lang, "error_file_too_large"))
             return
 
         # Update status
         await status_msg.edit_text(get_message(lang, "processing"))
 
-        # Send the video
-        video = FSInputFile(filepath)
-        await message.answer_video(
-            video,
-            caption=get_message(lang, "success"),
-            supports_streaming=True,
-        )
+        # Send items (video or photo)
+        for filepath, media_type in items:
+            downloaded_files.append(filepath)
+            media_file = FSInputFile(filepath)
+
+            if media_type == "video":
+                await message.answer_video(
+                    media_file,
+                    caption=get_message(lang, "success"),
+                    supports_streaming=True,
+                )
+            else:
+                await message.answer_photo(
+                    media_file,
+                    caption=get_message(lang, "success"),
+                )
 
         # Delete the status message
         await status_msg.delete()
 
     except Exception as e:
-        logger.error("Download error for URL %s: %s", url, str(e))
+        logger.error("Download error for URL %s: %s", url, str(e), exc_info=True)
         try:
             await status_msg.edit_text(get_message(lang, "error_download"))
         except Exception:
@@ -226,8 +250,8 @@ async def handle_text(message: Message):
 
     finally:
         # Cleanup downloaded files
-        if filepath:
-            cleanup_files(filepath)
+        for f in downloaded_files:
+            cleanup_files(f)
         # Also clean any leftover files for this user in downloads dir
         try:
             for f in Path(DOWNLOAD_DIR).glob(f"{message.from_user.id}_*"):
